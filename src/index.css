@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply antialiased;
+  }
+  
+  /* Light Mode: Latar belakang abu-abu lembut, teks hitam pekat untuk kontras */
+  body {
+    @apply bg-gray-200 text-gray-950 transition-colors duration-500;
+  }
+
+  /* Dark Mode: Latar belakang gelap, teks putih/abu terang */
+  .dark body {
+    @apply bg-gray-950 text-gray-100;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-100 dark:bg-gray-900;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-400 dark:bg-gray-700 rounded-full border-2 border-transparent;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-500 dark:bg-gray-600;
+  }
+}
+
+@layer components {
+  /* Class pembantu untuk kartu agar lebih kontras di atas bg abu-abu */
+  .card-container {
+    @apply bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-800 shadow-sm transition-colors;
+  }
+}
