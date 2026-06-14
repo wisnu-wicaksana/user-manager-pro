@@ -1,5 +1,6 @@
 import { useLayoutEffect } from "react";
 import { Routes, Route } from "react-router-dom";
+import { Toaster } from "react-hot-toast";
 import useUserStore from "./store/userStore";
 import Navbar from "./components/Navbar";
 import Home from "./pages/Home";
@@ -25,6 +26,15 @@ function App() {
 
   return (
     <div className="min-h-screen flex flex-col transition-colors duration-500">
+      {/* Konfigurasi Toaster (Global) */}
+      <Toaster 
+        position="top-center"
+        toastOptions={{
+          className: 'dark:bg-gray-800 dark:text-white border border-gray-100 dark:border-gray-700 font-bold rounded-2xl shadow-xl',
+          duration: 3000,
+        }}
+      />
+      
       <Navbar />
       
       <main className="flex-grow container mx-auto px-4 py-8 md:py-12">

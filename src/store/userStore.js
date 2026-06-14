@@ -22,11 +22,11 @@ const useUserStore = create(
           if (!response.ok) throw new Error("Gagal mengambil data dari server.");
           const data = await response.json();
           
-          // Tambahkan properti customId dan nickname secara otomatis
           const enhancedData = data.map(user => ({
             ...user,
             customId: `EMP-${user.id.toString().padStart(4, '0')}`,
-            nickname: user.username // Map initial username to nickname
+            nickname: user.username,
+            avatar: `https://i.pravatar.cc/150?u=${user.email}` // Avatar otomatis untuk data dummy
           }));
           
           set({ users: enhancedData, isLoading: false });
