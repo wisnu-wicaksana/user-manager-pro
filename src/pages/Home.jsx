@@ -1,8 +1,16 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import useUserStore from "../store/userStore";
 
 const Home = () => {
-  const { users } = useUserStore();
+  const { users, fetchUsers } = useUserStore();
+
+  // Sinkronisasi data saat halaman Home dibuka
+  useEffect(() => {
+    if (users.length === 0) {
+      fetchUsers();
+    }
+  }, [users.length, fetchUsers]);
 
   return (
     <div className="space-y-12 md:space-y-24 pb-12 transition-colors duration-300">
