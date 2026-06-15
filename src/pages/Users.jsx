@@ -8,7 +8,12 @@ import Modal from "../components/Modal";
 import UserCard from "../components/UserCard";
 import UserSkeleton from "../components/UserSkeleton";
 import LoadingOverlay from "../components/LoadingOverlay";
+import FormInput from "../components/FormInput";
 
+/**
+ * Aturan Validasi (Schema) menggunakan Zod.
+ * Ini adalah 'kontrak' data: data hanya bisa disimpan jika memenuhi syarat ini.
+ */
 const employeeSchema = z.object({
   customId: z.string().min(1, "ID Karyawan wajib diisi"),
   name: z.string().min(3, "Nama minimal 3 karakter"),
@@ -27,22 +32,27 @@ const employeeSchema = z.object({
 });
 
 const Users = () => {
-  const [search, setSearch] = useState("");
-  const [selectedDivisi, setSelectedDivisi] = useState("Semua");
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [avatarPreview, setAvatarPreview] = useState(null);
-  const [selectedFile, setSelectedFile] = useState(null);
-  const fileInputRef = useRef(null);
+  // State lokal untuk UI
+  const [search, setSearch] = useState("");           // Kata kunci pencarian
+  const [selectedDivisi, setSelectedDivisi] = useState("Semua"); // Filter divisi
+  const [isModalOpen, setIsModalOpen] = useState(false);         // Status modal tambah
+  const [avatarPreview, setAvatarPreview] = useState(null);      // Preview foto sebelum upload
+  const [selectedFile, setSelectedFile] = useState(null);       // File asli foto
+  const [page, setPage] = useState(1);                // Halaman aktif
+  const pageSize = 10;                                // Jumlah data per halaman
+  const fileInputRef = useRef(null);                  // Referensi tombol upload tersembunyi
 
-  const { users, isLoading, fetchUsers, addUser, checkDuplicate, uploadAvatar } = useUserStore();
+  // State dan Fungsi dari Zustand Store
+  const { users, totalCount, isLoading, isSubmitting, fetchUsers, addUser, checkDuplicate, uploadAvatar } = useUserStore();
 
+  // Inisialisasi React Hook Form
   const {
     register,
     handleSubmit,
     reset,
     formState: { errors },
   } = useForm({
-    resolver: zodResolver(employeeSchema),
+    resolver: zodResolver(employeeSchema), // Menghubungkan validasi Zod
     defaultValues: {
       customId: "",
       name: "",
@@ -55,12 +65,35 @@ const Users = () => {
     },
   });
 
+  /**
+   * PENTING: Ambil data setiap kali Halaman, Pencarian, atau Divisi berubah.
+   * Inilah yang membuat aplikasi terasa 'hidup' dan responsif.
+   */
   useEffect(() => {
-    if (users.length === 0) {
-      fetchUsers();
-    }
-  }, [users.length, fetchUsers]);
+    fetchUsers(page, pageSize, search, selectedDivisi);
+  }, [page, search, selectedDivisi, fetchUsers]);
 
+  // Handler untuk membuka modal tambah karyawan
+  const handleOpenAddModal = () => {
+    reset();
+    setAvatarPreview(null);
+    setSelectedFile(null);
+    setIsModalOpen(true);
+  };
+
+  // Handler untuk perubahan search agar kembali ke halaman 1
+  const handleSearchChange = (e) => {
+    setSearch(e.target.value);
+    setPage(1);
+  };
+
+  // Handler untuk perubahan divisi agar kembali ke halaman 1
+  const handleDivisiChange = (e) => {
+    setSelectedDivisi(e.target.value);
+    setPage(1);
+  };
+
+  // Menyiapkan daftar divisi unik untuk dropdown filter
   const listDivisi = useMemo(() => {
     const divisiSet = new Set();
     users.forEach((user) => {
@@ -69,27 +102,28 @@ const Users = () => {
     return ["Semua", ...Array.from(divisiSet).sort()];
   }, [users]);
 
-  const handleOpenAddModal = () => {
-    reset();
-    setAvatarPreview(null);
-    setSelectedFile(null);
-    setIsModalOpen(true);
-  };
-
+  // Menangani pemilihan file foto profil
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
+      if (file.size > 5 * 1024 * 1024) { // Batas 5MB
         toast.error("Maksimal 5MB");
         return;
       }
       setSelectedFile(file);
+      // Membuat URL sementara untuk ditampilkan sebagai preview
       const reader = new FileReader();
       reader.onloadend = () => setAvatarPreview(reader.result);
       reader.readAsDataURL(file);
     }
   };
 
+  /**
+   * Alur Simpan Karyawan Baru:
+   * 1. Cek duplikasi (Email/ID) di server.
+   * 2. Jika ada foto, upload dulu ke Supabase Storage.
+   * 3. Simpan seluruh data ke database.
+   */
   const onSubmit = async (data) => {
     try {
       const duplicateError = await checkDuplicate(data.customId, data.email);
@@ -112,13 +146,14 @@ const Users = () => {
     }
   };
 
+  // Logika download file CSV yang rapi untuk Excel
   const handleExportCSV = () => {
     if (users.length === 0) {
       toast.error("Tidak ada data untuk diekspor.");
       return;
     }
 
-    const excelInstruction = "sep=,";
+    const excelInstruction = "sep=,"; // Agar Excel tahu pembatasnya koma
     const headers = ["ID Karyawan,Nama Lengkap,Nama Panggilan,Email,Telepon,Divisi,Jabatan,Alamat,Kota"];
     const rows = users.map(u => {
       return [
@@ -148,24 +183,15 @@ const Users = () => {
     toast.success("Data berhasil diekspor ke CSV!");
   };
 
-  const filteredUsers = users.filter((user) => {
-    const matchesSearch =
-      user.name.toLowerCase().includes(search.toLowerCase()) ||
-      user.email.toLowerCase().includes(search.toLowerCase()) ||
-      (user.customId && user.customId.toLowerCase().includes(search.toLowerCase()));
-
-    const matchesDivisi =
-      selectedDivisi === "Semua" || user.company?.name === selectedDivisi;
-
-    return matchesSearch && matchesDivisi;
-  });
+  const totalPages = Math.ceil(totalCount / pageSize);
 
   return (
     <>
-      <LoadingOverlay isOpen={isLoading && users.length > 0} message="Sedang menyimpan..." />
+      {/* Overlay loading hanya saat ada proses tulis data (isSubmitting) */}
+      <LoadingOverlay isOpen={isSubmitting} message="Sedang memproses..." />
       
       <div className="max-w-5xl mx-auto px-2 sm:px-4">
-        {/* Header Section */}
+        {/* Header & Tombol Tambah/Export */}
         <div className="flex flex-col gap-6 mb-8 md:mb-12">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <h1 className="text-3xl md:text-5xl font-black text-gray-900 dark:text-white tracking-tight">
@@ -185,17 +211,17 @@ const Users = () => {
               
               <button
                 className="flex-[2] sm:flex-none bg-blue-600 text-white px-8 py-3.5 rounded-2xl font-black hover:bg-blue-700 active:scale-95 transition-all shadow-xl shadow-blue-200 dark:shadow-none flex items-center justify-center gap-2 text-base md:text-lg"
-                onClick={handleOpenAddModal}
+                onClick={handleOpenAddModal} 
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4" />
                 </svg>
-                Tambah Karyawan
+                Tambah
               </button>
             </div>
           </div>
 
-          {/* Filter & Search Bar Section */}
+          {/* Bar Pencarian & Filter Divisi */}
           <div className="flex flex-col lg:flex-row gap-4">
             <div className="flex-grow bg-white dark:bg-gray-800 p-3 md:p-4 rounded-2xl shadow-md border border-gray-300 dark:border-gray-700 flex items-center gap-3 transition-colors">
               <svg className="h-6 w-6 text-gray-400 ml-2 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -206,7 +232,7 @@ const Users = () => {
                 placeholder="Cari Nama, Email, atau ID..."
                 className="bg-transparent w-full py-1 outline-none text-gray-900 dark:text-white font-bold placeholder-gray-400 text-sm md:text-base"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={handleSearchChange}
               />
             </div>
 
@@ -217,7 +243,7 @@ const Users = () => {
               <select
                 className="bg-transparent w-full outline-none text-gray-900 dark:text-white font-bold text-sm md:text-base appearance-none cursor-pointer"
                 value={selectedDivisi}
-                onChange={(e) => setSelectedDivisi(e.target.value)}
+                onChange={handleDivisiChange}
               >
                 {listDivisi.map((divisi) => (
                   <option key={divisi} value={divisi} className="dark:bg-gray-800">
@@ -229,29 +255,26 @@ const Users = () => {
           </div>
         </div>
 
-        {/* List Section */}
-        <div className="space-y-4">
+        {/* Daftar Karyawan */}
+        <div className="space-y-4 mb-10">
           {isLoading && users.length === 0 ? (
             Array.from({ length: 5 }).map((_, i) => <UserSkeleton key={i} />)
           ) : (
             <>
               <div className="flex items-center justify-between px-2 mb-2">
                 <p className="text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest">
-                  Menampilkan {filteredUsers.length} Karyawan
+                  Total {totalCount} Karyawan
                 </p>
               </div>
 
-              {filteredUsers.map((user) => (
+              {users.map((user) => (
                 <UserCard key={user.id} user={user} />
               ))}
 
-              {!isLoading && filteredUsers.length === 0 && (
+              {!isLoading && users.length === 0 && (
                 <div className="text-center py-20 bg-white/50 dark:bg-gray-900/50 rounded-[2rem] border-2 border-dashed border-gray-300 dark:border-gray-800 transition-colors">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-gray-300 dark:text-gray-700 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
                   <p className="text-gray-500 dark:text-gray-500 text-lg md:text-xl font-bold italic">
-                    Hasil tidak ditemukan.
+                    Data tidak ditemukan.
                   </p>
                 </div>
               )}
@@ -259,17 +282,44 @@ const Users = () => {
           )}
         </div>
 
-        {/* Add Modal Form */}
+        {/* Navigasi Pagination */}
+        {totalPages > 1 && (
+          <div className="flex justify-center items-center gap-2 pb-12">
+            <button 
+              disabled={page === 1}
+              onClick={() => setPage(prev => prev - 1)}
+              className="p-3 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 disabled:opacity-30 transition-all hover:bg-gray-50 active:scale-95"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <div className="px-6 py-2 bg-blue-600 text-white rounded-xl font-black shadow-lg text-sm md:text-base">
+              {page} / {totalPages}
+            </div>
+            <button 
+              disabled={page === totalPages}
+              onClick={() => setPage(prev => prev + 1)}
+              className="p-3 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 disabled:opacity-30 transition-all hover:bg-gray-50 active:scale-95"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+        )}
+
+        {/* Modal Form Tambah Karyawan */}
         <Modal
           isOpen={isModalOpen}
-          onClose={() => !isLoading && setIsModalOpen(false)}
+          onClose={() => !isSubmitting && setIsModalOpen(false)}
           title="Tambah Karyawan Baru"
         >
           <form
             onSubmit={handleSubmit(onSubmit)}
             className="space-y-6 max-h-[75vh] md:max-h-[70vh] overflow-y-auto px-1 pr-2 custom-scrollbar"
           >
-            {/* Avatar Section */}
+            {/* Bagian Upload Foto */}
             <div className="flex flex-col items-center gap-4 py-4 bg-gray-50 dark:bg-gray-900/50 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-700">
               <div className="w-24 h-24 rounded-2xl overflow-hidden bg-white dark:bg-gray-800 shadow-md border-2 border-white dark:border-gray-700">
                 {avatarPreview ? (
@@ -285,116 +335,51 @@ const Users = () => {
               <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
               <button 
                 type="button" 
+                disabled={isSubmitting}
                 onClick={() => fileInputRef.current.click()}
-                className="text-xs font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest hover:underline"
+                className="text-xs font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest hover:underline disabled:opacity-50"
               >
                 Pilih Foto Profil
               </button>
             </div>
 
+            {/* Input Data menggunakan komponen FormInput reusable */}
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] md:text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest ml-1">ID Karyawan *</label>
-                  <input
-                    type="text"
-                    className={`w-full bg-gray-50 dark:bg-gray-900 border ${errors.customId ? 'border-red-500' : 'border-gray-200'} dark:border-gray-700 p-3.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all text-sm`}
-                    placeholder="EMP-0001"
-                    {...register("customId")}
-                  />
-                  {errors.customId && <p className="text-red-500 text-[10px] font-bold ml-1">{errors.customId.message}</p>}
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] md:text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest ml-1">Nama Panggilan</label>
-                  <input
-                    type="text"
-                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 p-3.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all text-sm"
-                    {...register("nickname")}
-                  />
-                </div>
+                <FormInput label="ID Karyawan *" name="customId" register={register} error={errors.customId} placeholder="EMP-0001" />
+                <FormInput label="Nama Panggilan" name="nickname" register={register} error={errors.nickname} placeholder="Contoh: Budi" />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] md:text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest ml-1">Nama Lengkap *</label>
-                  <input
-                    type="text"
-                    className={`w-full bg-gray-50 dark:bg-gray-900 border ${errors.name ? 'border-red-500' : 'border-gray-200'} dark:border-gray-700 p-3.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all text-sm`}
-                    {...register("name")}
-                  />
-                  {errors.name && <p className="text-red-500 text-[10px] font-bold ml-1">{errors.name.message}</p>}
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] md:text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest ml-1">Email *</label>
-                  <input
-                    type="email"
-                    className={`w-full bg-gray-50 dark:bg-gray-900 border ${errors.email ? 'border-red-500' : 'border-gray-200'} dark:border-gray-700 p-3.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all text-sm`}
-                    {...register("email")}
-                  />
-                  {errors.email && <p className="text-red-500 text-[10px] font-bold ml-1">{errors.email.message}</p>}
-                </div>
+                <FormInput label="Nama Lengkap *" name="name" register={register} error={errors.name} />
+                <FormInput label="Email *" name="email" register={register} error={errors.email} type="email" />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] md:text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest ml-1">Telepon</label>
-                  <input
-                    type="text"
-                    className={`w-full bg-gray-50 dark:bg-gray-900 border ${errors.phone ? 'border-red-500' : 'border-gray-200'} dark:border-gray-700 p-3.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all text-sm`}
-                    {...register("phone")}
-                  />
-                  {errors.phone && <p className="text-red-500 text-[10px] font-bold ml-1">{errors.phone.message}</p>}
-                </div>
+                <FormInput label="Telepon" name="phone" register={register} error={errors.phone} />
               </div>
             </div>
 
             <div className="space-y-4">
               <h4 className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-[0.2em] border-b border-blue-50 dark:border-blue-900/30 pb-2">Informasi Bagian</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] md:text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest ml-1">Nama Bagian/Divisi</label>
-                  <input
-                    type="text"
-                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 p-3.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all text-sm"
-                    {...register("company.name")}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] md:text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest ml-1">Keterangan/Jabatan</label>
-                  <input
-                    type="text"
-                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 p-3.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all text-sm"
-                    {...register("company.catchPhrase")}
-                  />
-                </div>
+                <FormInput label="Nama Bagian/Divisi" name="company.name" register={register} error={errors.company?.name} />
+                <FormInput label="Keterangan/Jabatan" name="company.catchPhrase" register={register} error={errors.company?.catchPhrase} />
               </div>
             </div>
 
             <div className="space-y-4">
               <h4 className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-[0.2em] border-b border-blue-50 dark:border-blue-900/30 pb-2">Domisili</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] md:text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest ml-1">Jalan</label>
-                  <input
-                    type="text"
-                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 p-3.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all text-sm"
-                    {...register("address.street")}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] md:text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest ml-1">Kota</label>
-                  <input
-                    type="text"
-                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 p-3.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all text-sm"
-                    {...register("address.city")}
-                  />
-                </div>
+                <FormInput label="Jalan" name="address.street" register={register} error={errors.address?.street} />
+                <FormInput label="Kota" name="address.city" register={register} error={errors.address?.city} />
               </div>
             </div>
 
+            {/* Tombol Aksi */}
             <div className="flex gap-4 pt-6 pb-2 sticky bottom-0 bg-white dark:bg-gray-800 transition-colors">
               <button
-                disabled={isLoading}
+                disabled={isSubmitting}
                 type="button"
                 onClick={() => setIsModalOpen(false)}
                 className="flex-1 px-6 py-4 rounded-2xl font-black text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700 text-sm md:text-base disabled:opacity-50"
@@ -402,11 +387,11 @@ const Users = () => {
                 Batal
               </button>
               <button
-                disabled={isLoading}
+                disabled={isSubmitting}
                 type="submit"
                 className="flex-[2] px-6 py-4 rounded-2xl font-black bg-blue-600 text-white hover:bg-blue-700 shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                {isLoading ? "Memproses..." : "Simpan Karyawan"}
+                {isSubmitting ? "Memproses..." : "Simpan Karyawan"}
               </button>
             </div>
           </form>

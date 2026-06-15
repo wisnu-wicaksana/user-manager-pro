@@ -4,25 +4,45 @@ import { supabase } from '../lib/supabase';
 
 const useUserStore = create(
   persist(
-    (set) => ({
-      users: [],
-      isLoading: false,
-      error: null,
-      theme: 'light',
+    (set, get) => ({
+      users: [],         // Menyimpan daftar karyawan yang sedang tampil
+      totalCount: 0,     // Total seluruh karyawan di database (untuk pagination)
+      isLoading: false,  // Status pemuatan data (fetch)
+      isSubmitting: false, // Status pengiriman data (add/edit/delete)
+      error: null,       // Menyimpan pesan error jika ada
+      theme: 'light',    // Status tema aplikasi
       
+      // Fungsi untuk mengganti tema (Terang/Gelap)
       toggleTheme: () => {
         set((state) => ({
           theme: state.theme === 'light' ? 'dark' : 'light'
         }));
       },
 
-      fetchUsers: async () => {
+      /**
+       * Tujuan: Mengambil data karyawan dari Supabase dengan filter dan pagination.
+       */
+      fetchUsers: async (page = 1, pageSize = 10, search = "", divisi = "Semua") => {
         set({ isLoading: true, error: null });
         try {
-          const { data, error } = await supabase
+          let query = supabase
             .from('karyawan')
-            .select('*')
-            .order('created_at', { ascending: false });
+            .select('*', { count: 'exact' });
+
+          if (search) {
+            query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%,custom_id.ilike.%${search}%`);
+          }
+
+          if (divisi !== "Semua") {
+            query = query.eq('divisi', divisi);
+          }
+
+          const from = (page - 1) * pageSize;
+          const to = from + pageSize - 1;
+
+          const { data, error, count } = await query
+            .order('created_at', { ascending: false })
+            .range(from, to);
 
           if (error) throw error;
           
@@ -34,19 +54,13 @@ const useUserStore = create(
             email: item.email,
             phone: item.phone,
             avatar: item.avatar,
-            company: {
-              name: item.divisi,
-              catchPhrase: item.jabatan
-            },
-            address: {
-              street: item.jalan,
-              city: item.kota
-            }
+            company: { name: item.divisi, catchPhrase: item.jabatan },
+            address: { street: item.jalan, city: item.kota }
           }));
 
-          set({ users: mappedData, isLoading: false });
+          set({ users: mappedData, totalCount: count || 0, isLoading: false });
         } catch (error) {
-          console.error("Gagal mengambil data dari Supabase:", error.message);
+          console.error("Gagal fetch data:", error.message);
           set({ error: error.message, isLoading: false });
         }
       },
@@ -73,10 +87,19 @@ const useUserStore = create(
         return null;
       },
 
-      // Fungsi untuk upload file ke Supabase Storage
+      deleteOldFile: async (url) => {
+        if (!url || !url.includes('avatars/')) return;
+        try {
+          const path = url.split('avatars/').pop();
+          await supabase.storage.from('avatars').remove([`avatars/${path}`]);
+        } catch (e) {
+          console.error("Gagal hapus file lama:", e);
+        }
+      },
+
       uploadAvatar: async (file) => {
         const fileExt = file.name.split('.').pop();
-        const fileName = `${Math.random()}.${fileExt}`;
+        const fileName = `${Date.now()}.${fileExt}`;
         const filePath = `avatars/${fileName}`;
 
         const { error: uploadError } = await supabase.storage
@@ -93,9 +116,9 @@ const useUserStore = create(
       },
 
       addUser: async (userData) => {
-        set({ isLoading: true });
+        set({ isSubmitting: true });
         try {
-          const { data, error } = await supabase
+          const { error } = await supabase
             .from('karyawan')
             .insert([{
               custom_id: userData.customId,
@@ -108,36 +131,23 @@ const useUserStore = create(
               jabatan: userData.company?.catchPhrase,
               jalan: userData.address?.street,
               kota: userData.address?.city
-            }])
-            .select();
+            }]);
 
           if (error) throw error;
 
-          const newUser = {
-            id: data[0].id,
-            customId: data[0].custom_id,
-            name: data[0].name,
-            nickname: data[0].nickname,
-            email: data[0].email,
-            phone: data[0].phone,
-            avatar: data[0].avatar,
-            company: { name: data[0].divisi, catchPhrase: data[0].jabatan },
-            address: { street: data[0].jalan, city: data[0].kota }
-          };
-
-          set((state) => ({
-            users: [newUser, ...state.users],
-            isLoading: false
-          }));
-        } catch (error) {
-          set({ isLoading: false });
-          throw error;
+          await get().fetchUsers(); 
+        } finally {
+          set({ isSubmitting: false });
         }
       },
 
-      deleteUser: async (id) => {
-        set({ isLoading: true });
+      deleteUser: async (id, avatarUrl = null) => {
+        set({ isSubmitting: true });
         try {
+          if (avatarUrl) {
+            await get().deleteOldFile(avatarUrl);
+          }
+
           const { error } = await supabase
             .from('karyawan')
             .delete()
@@ -145,19 +155,19 @@ const useUserStore = create(
 
           if (error) throw error;
 
-          set((state) => ({
-            users: state.users.filter((user) => user.id !== id),
-            isLoading: false
-          }));
-        } catch (error) {
-          set({ isLoading: false });
-          throw error;
+          await get().fetchUsers();
+        } finally {
+          set({ isSubmitting: false });
         }
       },
 
-      editUser: async (id, updatedData) => {
-        set({ isLoading: true });
+      editUser: async (id, updatedData, oldAvatarUrl = null) => {
+        set({ isSubmitting: true });
         try {
+          if (updatedData.avatar && oldAvatarUrl && updatedData.avatar !== oldAvatarUrl) {
+            await get().deleteOldFile(oldAvatarUrl);
+          }
+
           const { error } = await supabase
             .from('karyawan')
             .update({
@@ -176,15 +186,9 @@ const useUserStore = create(
 
           if (error) throw error;
 
-          set((state) => ({
-            users: state.users.map((user) =>
-              user.id === id ? { ...user, ...updatedData } : user
-            ),
-            isLoading: false
-          }));
-        } catch (error) {
-          set({ isLoading: false });
-          throw error;
+          await get().fetchUsers();
+        } finally {
+          set({ isSubmitting: false });
         }
       },
     }),

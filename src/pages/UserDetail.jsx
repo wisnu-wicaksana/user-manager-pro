@@ -9,7 +9,9 @@ import { supabase } from "../lib/supabase";
 import useUserStore from "../store/userStore";
 import Modal from "../components/Modal";
 import LoadingOverlay from "../components/LoadingOverlay";
+import FormInput from "../components/FormInput";
 
+// Skema Validasi yang sama digunakan untuk Edit
 const employeeSchema = z.object({
   customId: z.string().min(1, "ID Karyawan wajib diisi"),
   name: z.string().min(3, "Nama minimal 3 karakter"),
@@ -28,13 +30,14 @@ const employeeSchema = z.object({
 });
 
 const UserDetail = () => {
-  const { id } = useParams();
+  const { id } = useParams(); // Mengambil ID dari URL (/users/:id)
   const navigate = useNavigate();
   const { users, editUser, deleteUser, uploadAvatar, isLoading: storeLoading } = useUserStore();
   const fileInputRef = useRef(null);
   
-  const [user, setUser] = useState(null);
-  const [localLoading, setLocalLoading] = useState(true);
+  // State Lokal
+  const [user, setUser] = useState(null);             // Data karyawan yang ditampilkan
+  const [localLoading, setLocalLoading] = useState(true); // Loading khusus halaman ini
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -43,18 +46,22 @@ const UserDetail = () => {
   const {
     register,
     handleSubmit,
-    setValue,
+    setValue, // Digunakan untuk mengisi form secara manual (saat edit)
     formState: { errors },
   } = useForm({
     resolver: zodResolver(employeeSchema),
   });
 
-  // Ambil data user saat ID atau store users berubah
+  /**
+   * Strategi Penyelamatan Data saat Refresh:
+   * 1. Cek di Store lokal (users). Jika ada, tampilkan langsung.
+   * 2. Jika Store kosong (karena refresh), tanya langsung ke database Supabase.
+   */
   useEffect(() => {
     let isMounted = true;
 
     const fetchSingleUser = async () => {
-      // Prioritas 1: Cari di store lokal
+      // Prioritas 1: Cari di memori aplikasi
       const storeUser = users.find((u) => String(u.id) === id);
       
       if (storeUser) {
@@ -65,7 +72,7 @@ const UserDetail = () => {
         return;
       }
 
-      // Prioritas 2: Ambil dari Supabase (jika refresh halaman)
+      // Prioritas 2: Ambil langsung dari server
       if (isMounted) setLocalLoading(true);
       
       try {
@@ -78,6 +85,7 @@ const UserDetail = () => {
         if (error) throw error;
 
         if (data && isMounted) {
+          // Petakan data database ke objek aplikasi
           const mappedData = {
             id: data.id,
             customId: data.custom_id,
@@ -104,8 +112,10 @@ const UserDetail = () => {
     return () => { isMounted = false; };
   }, [id, users, navigate]);
 
+  // Fungsi untuk mengisi nilai formulir saat tombol Edit diklik
   const openEditModal = () => {
     if (user) {
+      // Mengisi field input satu per satu agar formulir tidak kosong saat dibuka
       setValue("customId", user.customId || "");
       setValue("name", user.name || "");
       setValue("nickname", user.nickname || "");
@@ -123,13 +133,17 @@ const UserDetail = () => {
     }
   };
 
+  /**
+   * Tujuan: Menyimpan perubahan data karyawan.
+   * Alur: Upload foto baru (jika ada) -> Update database -> Update store lokal.
+   */
   const onEditSubmit = async (data) => {
     try {
       let finalAvatarUrl = user.avatar;
       if (selectedFile) {
         finalAvatarUrl = await uploadAvatar(selectedFile);
       }
-      await editUser(user.id, { ...data, avatar: finalAvatarUrl });
+      await editUser(user.id, { ...data, avatar: finalAvatarUrl }, user.avatar);
       toast.success("Data berhasil diperbarui!");
       setIsEditModalOpen(false);
     } catch (err) {
@@ -151,11 +165,12 @@ const UserDetail = () => {
     }
   };
 
+  // Fungsi konfirmasi hapus permanen
   const confirmDelete = async () => {
     try {
-      await deleteUser(user.id);
+      await deleteUser(user.id, user.avatar);
       toast.success("Karyawan dihapus.");
-      navigate("/users");
+      navigate("/users"); // Kembali ke daftar setelah dihapus
     } catch {
       toast.error("Gagal menghapus.");
     }
@@ -173,6 +188,7 @@ const UserDetail = () => {
 
   return (
     <>
+      {/* Loading overlay global untuk mencegah user klik-klik saat proses simpan */}
       <LoadingOverlay isOpen={storeLoading} message="Sedang memproses..." />
       
       <motion.div 
@@ -180,6 +196,7 @@ const UserDetail = () => {
         animate={{ opacity: 1, scale: 1 }}
         className="max-w-4xl mx-auto px-2 sm:px-4"
       >
+        {/* Navigasi dan Tombol Aksi (Edit/Hapus) */}
         <div className="flex justify-between items-center mb-6 md:mb-8">
           <Link 
             to="/users" 
@@ -192,20 +209,12 @@ const UserDetail = () => {
           </Link>
 
           <div className="flex gap-2">
-            <button 
-              onClick={openEditModal}
-              className="p-2.5 rounded-xl bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500 hover:text-white transition-all border border-yellow-100 dark:border-yellow-900/50"
-              title="Edit Karyawan"
-            >
+            <button onClick={openEditModal} className="p-2.5 rounded-xl bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500 hover:text-white transition-all border border-yellow-100 dark:border-yellow-900/50">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
             </button>
-            <button 
-              onClick={() => setIsDeleteModalOpen(true)}
-              className="p-2.5 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-500 hover:text-white transition-all border border-red-100 dark:border-red-900/50"
-              title="Hapus Karyawan"
-            >
+            <button onClick={() => setIsDeleteModalOpen(true)} className="p-2.5 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-500 hover:text-white transition-all border border-red-100 dark:border-red-900/50">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
@@ -213,6 +222,7 @@ const UserDetail = () => {
           </div>
         </div>
 
+        {/* Tampilan Kartu Profil Karyawan */}
         <div className="bg-white dark:bg-gray-800 rounded-[2.5rem] shadow-2xl shadow-blue-100 dark:shadow-none overflow-hidden border border-gray-100 dark:border-gray-700 transition-colors text-gray-900 dark:text-gray-100">
           <div className="bg-gradient-to-r from-blue-600 to-blue-400 h-32 sm:h-40 md:h-64 relative">
             <div className="absolute -bottom-16 left-8 md:left-16">
@@ -249,7 +259,9 @@ const UserDetail = () => {
               </div>
             </div>
 
+            {/* Grid Informasi Lengkap */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12 md:gap-20 border-t border-gray-50 dark:border-gray-700 pt-12">
+              {/* Kontak */}
               <div className="space-y-10">
                 <h3 className="text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-[0.3em]">Informasi Kontak</h3>
                 <div className="space-y-8">
@@ -277,7 +289,7 @@ const UserDetail = () => {
                   </div>
                   <div className="flex items-center gap-6 group">
                     <div className="w-14 h-14 bg-blue-50 dark:bg-gray-700 rounded-2xl text-blue-600 dark:text-blue-400 flex items-center justify-center group-hover:scale-110 transition-transform shadow-sm">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                       </svg>
                     </div>
@@ -289,6 +301,7 @@ const UserDetail = () => {
                 </div>
               </div>
 
+              {/* Karir & Alamat */}
               <div className="space-y-10">
                 <h3 className="text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-[0.3em]">Karir & Domisili</h3>
                 <div className="space-y-8">
@@ -325,12 +338,14 @@ const UserDetail = () => {
           </div>
         </div>
 
+        {/* Modal Edit di Halaman Detail */}
         <Modal 
           isOpen={isEditModalOpen} 
           onClose={() => !storeLoading && setIsEditModalOpen(false)} 
           title="Ubah Data Karyawan"
         >
           <form onSubmit={handleSubmit(onEditSubmit)} className="space-y-6 max-h-[75vh] overflow-y-auto px-1 pr-2 custom-scrollbar">
+            {/* ... Bagian Upload Foto ... */}
             <div className="flex flex-col items-center gap-4 py-4 bg-gray-50 dark:bg-gray-900/50 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-700">
               <div className="w-24 h-24 rounded-2xl overflow-hidden bg-white dark:bg-gray-800 shadow-md border-2 border-white dark:border-gray-700">
                 {avatarPreview ? (
@@ -343,144 +358,57 @@ const UserDetail = () => {
                   </div>
                 )}
               </div>
-              <input 
-                type="file" 
-                accept="image/*" 
-                onChange={handleFileChange} 
-                className="hidden" 
-                ref={fileInputRef}
-              />
-              <button 
-                type="button" 
-                disabled={storeLoading}
-                onClick={() => fileInputRef.current.click()}
-                className="text-xs font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest hover:underline disabled:opacity-50"
-              >
+              <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" ref={fileInputRef} />
+              <button type="button" disabled={storeLoading} onClick={() => fileInputRef.current.click()} className="text-xs font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest hover:underline disabled:opacity-50">
                 Ganti Foto Profil
               </button>
             </div>
 
+            {/* Input Data Masal */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1.5 ml-1">ID Karyawan</label>
-                <input
-                  type="text"
-                  className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 p-3.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all text-sm"
-                  {...register("customId")}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1.5 ml-1">Nama Panggilan</label>
-                <input
-                  type="text"
-                  className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 p-3.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all text-sm"
-                  {...register("nickname")}
-                />
-              </div>
+              <FormInput label="ID Karyawan" name="customId" register={register} error={errors.customId} />
+              <FormInput label="Nama Panggilan" name="nickname" register={register} error={errors.nickname} />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1.5 ml-1">Nama Lengkap *</label>
-                <input
-                  type="text"
-                  className={`w-full bg-gray-50 dark:bg-gray-900 border ${errors.name ? 'border-red-500' : 'border-gray-200'} dark:border-gray-700 p-3.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all text-sm`}
-                  {...register("name")}
-                />
-                {errors.name && <p className="text-red-500 text-[10px] font-bold ml-1">{errors.name.message}</p>}
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1.5 ml-1">Email *</label>
-                <input
-                  type="email"
-                  className={`w-full bg-gray-50 dark:bg-gray-900 border ${errors.email ? 'border-red-500' : 'border-gray-200'} dark:border-gray-700 p-3.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all text-sm`}
-                  {...register("email")}
-                />
-                {errors.email && <p className="text-red-500 text-[10px] font-bold ml-1">{errors.email.message}</p>}
-              </div>
+              <FormInput label="Nama Lengkap *" name="name" register={register} error={errors.name} />
+              <FormInput label="Email *" name="email" register={register} error={errors.email} />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1.5 ml-1">Telepon</label>
-                <input
-                  type="text"
-                  className={`w-full bg-gray-50 dark:bg-gray-900 border ${errors.phone ? 'border-red-500' : 'border-gray-200'} dark:border-gray-700 p-3.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all text-sm`}
-                  {...register("phone")}
-                />
-                {errors.phone && <p className="text-red-500 text-[10px] font-bold ml-1">{errors.phone.message}</p>}
-              </div>
+              <FormInput label="Telepon" name="phone" register={register} error={errors.phone} />
             </div>
 
             <div className="space-y-4">
               <h4 className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-[0.2em] border-b border-blue-50 dark:border-blue-900/30 pb-2">Informasi Bagian</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1.5 ml-1">Nama Bagian/Divisi</label>
-                  <input
-                    type="text"
-                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 p-3.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all text-sm"
-                    {...register("company.name")}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1.5 ml-1">Keterangan/Jabatan</label>
-                  <input
-                    type="text"
-                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 p-3.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all text-sm"
-                    {...register("company.catchPhrase")}
-                  />
-                </div>
+                <FormInput label="Nama Bagian/Divisi" name="company.name" register={register} error={errors.company?.name} />
+                <FormInput label="Keterangan/Jabatan" name="company.catchPhrase" register={register} error={errors.company?.catchPhrase} />
               </div>
             </div>
 
             <div className="space-y-4">
               <h4 className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-[0.2em] border-b border-blue-50 dark:border-blue-900/30 pb-2">Domisili</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1.5 ml-1">Jalan</label>
-                  <input
-                    type="text"
-                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 p-3.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all text-sm"
-                    {...register("address.street")}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest mb-1.5 ml-1">Kota</label>
-                  <input
-                    type="text"
-                    className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 p-3.5 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all text-sm"
-                    {...register("address.city")}
-                  />
-                </div>
+                <FormInput label="Jalan" name="address.street" register={register} error={errors.address?.street} />
+                <FormInput label="Kota" name="address.city" register={register} error={errors.address?.city} />
               </div>
             </div>
 
+            {/* Tombol Simpan/Batal */}
             <div className="flex gap-4 pt-6 pb-2 sticky bottom-0 bg-white dark:bg-gray-800 transition-colors">
-              <button 
-                type="button"
-                disabled={storeLoading}
-                onClick={() => setIsEditModalOpen(false)}
-                className="flex-1 px-6 py-4 rounded-2xl font-black text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700"
-              >
+              <button type="button" disabled={storeLoading} onClick={() => setIsEditModalOpen(false)} className="flex-1 px-6 py-4 rounded-2xl font-black text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700">
                 Batal
               </button>
-              <button 
-                type="submit"
-                disabled={storeLoading}
-                className="flex-[2] px-6 py-4 rounded-2xl font-black bg-blue-600 text-white hover:bg-blue-700 shadow-xl transition-all active:scale-95 disabled:opacity-50"
-              >
+              <button type="submit" disabled={storeLoading} className="flex-[2] px-6 py-4 rounded-2xl font-black bg-blue-600 text-white hover:bg-blue-700 shadow-xl transition-all active:scale-95 disabled:opacity-50">
                 {storeLoading ? "Menyimpan..." : "Simpan Perubahan"}
               </button>
             </div>
           </form>
         </Modal>
 
-        <Modal
-          isOpen={isDeleteModalOpen}
-          onClose={() => !storeLoading && setIsDeleteModalOpen(false)}
-          title="Konfirmasi Hapus"
-        >
+        {/* Modal Konfirmasi Hapus */}
+        <Modal isOpen={isDeleteModalOpen} onClose={() => !storeLoading && setIsDeleteModalOpen(false)} title="Konfirmasi Hapus">
           <div className="text-center py-2">
             <div className="w-20 h-20 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full flex items-center justify-center mx-auto mb-6 animate-bounce">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -492,18 +420,10 @@ const UserDetail = () => {
               Tindakan ini tidak dapat dibatalkan. Seluruh data <span className="font-bold text-gray-900 dark:text-white">{user.name}</span> akan dihapus permanen.
             </p>
             <div className="flex gap-4">
-              <button 
-                disabled={storeLoading}
-                onClick={() => setIsDeleteModalOpen(false)}
-                className="flex-1 px-6 py-4 rounded-2xl font-black text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700"
-              >
+              <button disabled={storeLoading} onClick={() => setIsDeleteModalOpen(false)} className="flex-1 px-6 py-4 rounded-2xl font-black text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700">
                 Batal
               </button>
-              <button 
-                disabled={storeLoading}
-                onClick={confirmDelete}
-                className="flex-1 px-6 py-4 rounded-2xl font-black bg-red-600 text-white hover:bg-red-700 shadow-xl shadow-red-200 dark:shadow-none transition-all active:scale-95 disabled:opacity-50"
-              >
+              <button disabled={storeLoading} onClick={confirmDelete} className="flex-1 px-6 py-4 rounded-2xl font-black bg-red-600 text-white hover:bg-red-700 shadow-xl shadow-red-200 dark:shadow-none transition-all active:scale-95 disabled:opacity-50">
                 {storeLoading ? "Menghapus..." : "Ya, Hapus"}
               </button>
             </div>
