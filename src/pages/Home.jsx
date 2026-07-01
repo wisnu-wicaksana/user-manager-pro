@@ -177,8 +177,8 @@ const Home = () => {
             answer="Buka Dashboard karyawan, lalu klik tombol 'Export'. Aplikasi akan mengunduh seluruh data karyawan yang saat itu sesuai dengan kata kunci pencarian dan filter divisi yang aktif langsung ke dalam berkas berformat CSV secara otomatis."
           />
           <FAQItem 
-            question="Apakah aplikasi ini mendukung mode tampilan gelap (Dark Mode)?" 
-            answer="Tentu saja! Anda bisa mengganti mode tampilan gelap/terang secara manual dengan menekan tombol ikon bulan/matahari di bilah navigasi (Navbar) atas. Preferensi tema Anda akan disimpan secara otomatis di browser lokal Anda."
+            question="Apa keunggulan utama User Manager Pro dibanding mengelola data karyawan menggunakan spreadsheet Excel biasa?" 
+            answer="User Manager Pro mendigitalisasi pengelolaan SDM Anda ke sistem cloud yang dinamis dan terpusat secara real-time. Dibandingkan Excel yang rentan rusak dan kaku, aplikasi ini menawarkan tingkat keamanan tinggi (Row Level Security), pencegahan kesalahan input divisi, validasi otomatis duplikasi ID/Email secara real-time, unggah foto profil terintegrasi, serta kemampuan pencarian dan ekspor-impor kilat yang dapat diakses aman oleh seluruh tim HR Anda kapan saja dan di mana saja."
           />
         </div>
       </section>
