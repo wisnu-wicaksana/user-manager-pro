@@ -32,7 +32,15 @@ const employeeSchema = z.object({
 const UserDetail = () => {
   const { id } = useParams(); // Mengambil ID dari URL (/users/:id)
   const navigate = useNavigate();
-  const { users, editUser, deleteUser, uploadAvatar, isLoading: storeLoading } = useUserStore();
+  const { 
+    users, 
+    editUser, 
+    deleteUser, 
+    uploadAvatar, 
+    checkDuplicate,
+    fetchDivisions,
+    isLoading: storeLoading 
+  } = useUserStore();
   const fileInputRef = useRef(null);
   
   // State Lokal
@@ -139,6 +147,12 @@ const UserDetail = () => {
    */
   const onEditSubmit = async (data) => {
     try {
+      const duplicateError = await checkDuplicate(data.customId, data.email, user.id);
+      if (duplicateError) {
+        toast.error(duplicateError);
+        return;
+      }
+
       let finalAvatarUrl = user.avatar;
       if (selectedFile) {
         finalAvatarUrl = await uploadAvatar(selectedFile);
@@ -146,6 +160,7 @@ const UserDetail = () => {
       await editUser(user.id, { ...data, avatar: finalAvatarUrl }, user.avatar);
       toast.success("Data berhasil diperbarui!");
       setIsEditModalOpen(false);
+      fetchDivisions(); // Memperbarui dropdown divisi jika divisi diubah
     } catch (err) {
       toast.error(err.message || "Gagal memperbarui data.");
     }
@@ -170,6 +185,7 @@ const UserDetail = () => {
     try {
       await deleteUser(user.id, user.avatar);
       toast.success("Karyawan dihapus.");
+      fetchDivisions(); // Memperbarui dropdown divisi jika divisi dihapus
       navigate("/users"); // Kembali ke daftar setelah dihapus
     } catch {
       toast.error("Gagal menghapus.");
@@ -327,8 +343,8 @@ const UserDetail = () => {
                     <div className="min-w-0">
                       <p className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase mb-1 tracking-widest">Alamat Domisili</p>
                       <p className="text-lg md:text-xl text-gray-800 dark:text-gray-200 font-bold leading-relaxed break-words">
-                        {user.address?.street}, {user.address?.suite}<br />
-                        {user.address?.city}, {user.address?.zipcode}
+                        {user.address?.street && `${user.address.street}, `}
+                        {user.address?.city || 'N/A'}
                       </p>
                     </div>
                   </div>

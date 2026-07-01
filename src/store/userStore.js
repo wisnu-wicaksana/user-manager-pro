@@ -11,12 +11,65 @@ const useUserStore = create(
       isSubmitting: false, // Status pengiriman data (add/edit/delete)
       error: null,       // Menyimpan pesan error jika ada
       theme: 'light',    // Status tema aplikasi
+      divisions: [],     // Menyimpan daftar divisi unik
+      dashboardPage: 1,  // Halaman aktif dashboard (untuk retensi filter)
+      dashboardSearch: "", // Kata kunci pencarian dashboard (untuk retensi filter)
+      dashboardDivisi: "Semua", // Filter divisi dashboard (untuk retensi filter)
       
       // Fungsi untuk mengganti tema (Terang/Gelap)
       toggleTheme: () => {
         set((state) => ({
           theme: state.theme === 'light' ? 'dark' : 'light'
         }));
+      },
+
+      // Aksi untuk memperbarui filter retensi
+      setDashboardPage: (page) => set({ dashboardPage: page }),
+      setDashboardSearch: (search) => set({ dashboardSearch: search }),
+      setDashboardDivisi: (divisi) => set({ dashboardDivisi: divisi }),
+      resetDashboardFilters: () => set({ dashboardPage: 1, dashboardSearch: "", dashboardDivisi: "Semua" }),
+
+      // Fungsi untuk mengambil daftar divisi unik dari database
+      fetchDivisions: async () => {
+        try {
+          const { data, error } = await supabase
+            .from('karyawan')
+            .select('divisi');
+          
+          if (error) throw error;
+          
+          const uniqueDivisions = Array.from(
+            new Set(data.map(item => item.divisi).filter(Boolean))
+          ).sort();
+          
+          set({ divisions: uniqueDivisions });
+        } catch (error) {
+          console.error("Gagal mengambil divisi:", error.message);
+        }
+      },
+
+      // Fungsi untuk mengambil seluruh data karyawan terfilter (tanpa pagination) untuk keperluan ekspor
+      exportUsers: async (search = "", divisi = "Semua") => {
+        try {
+          let query = supabase
+            .from('karyawan')
+            .select('*');
+
+          if (search) {
+            query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%,custom_id.ilike.%${search}%`);
+          }
+
+          if (divisi !== "Semua") {
+            query = query.eq('divisi', divisi);
+          }
+
+          const { data, error } = await query.order('created_at', { ascending: false });
+          if (error) throw error;
+          return data;
+        } catch (error) {
+          console.error("Gagal ekspor data karyawan:", error.message);
+          throw error;
+        }
       },
 
       /**

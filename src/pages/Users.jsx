@@ -33,17 +33,32 @@ const employeeSchema = z.object({
 
 const Users = () => {
   // State lokal untuk UI
-  const [search, setSearch] = useState("");           // Kata kunci pencarian
-  const [selectedDivisi, setSelectedDivisi] = useState("Semua"); // Filter divisi
   const [isModalOpen, setIsModalOpen] = useState(false);         // Status modal tambah
   const [avatarPreview, setAvatarPreview] = useState(null);      // Preview foto sebelum upload
   const [selectedFile, setSelectedFile] = useState(null);       // File asli foto
-  const [page, setPage] = useState(1);                // Halaman aktif
   const pageSize = 10;                                // Jumlah data per halaman
   const fileInputRef = useRef(null);                  // Referensi tombol upload tersembunyi
 
   // State dan Fungsi dari Zustand Store
-  const { users, totalCount, isLoading, isSubmitting, fetchUsers, addUser, checkDuplicate, uploadAvatar } = useUserStore();
+  const { 
+    users, 
+    totalCount, 
+    isLoading, 
+    isSubmitting, 
+    fetchUsers, 
+    addUser, 
+    checkDuplicate, 
+    uploadAvatar,
+    divisions,
+    fetchDivisions,
+    exportUsers,
+    dashboardPage,
+    dashboardSearch,
+    dashboardDivisi,
+    setDashboardPage,
+    setDashboardSearch,
+    setDashboardDivisi
+  } = useUserStore();
 
   // Inisialisasi React Hook Form
   const {
@@ -65,13 +80,18 @@ const Users = () => {
     },
   });
 
+  // Ambil daftar divisi sekali saat komponen pertama kali dipasang
+  useEffect(() => {
+    fetchDivisions();
+  }, [fetchDivisions]);
+
   /**
    * PENTING: Ambil data setiap kali Halaman, Pencarian, atau Divisi berubah.
    * Inilah yang membuat aplikasi terasa 'hidup' dan responsif.
    */
   useEffect(() => {
-    fetchUsers(page, pageSize, search, selectedDivisi);
-  }, [page, search, selectedDivisi, fetchUsers]);
+    fetchUsers(dashboardPage, pageSize, dashboardSearch, dashboardDivisi);
+  }, [dashboardPage, dashboardSearch, dashboardDivisi, fetchUsers]);
 
   // Handler untuk membuka modal tambah karyawan
   const handleOpenAddModal = () => {
@@ -83,24 +103,20 @@ const Users = () => {
 
   // Handler untuk perubahan search agar kembali ke halaman 1
   const handleSearchChange = (e) => {
-    setSearch(e.target.value);
-    setPage(1);
+    setDashboardSearch(e.target.value);
+    setDashboardPage(1);
   };
 
   // Handler untuk perubahan divisi agar kembali ke halaman 1
   const handleDivisiChange = (e) => {
-    setSelectedDivisi(e.target.value);
-    setPage(1);
+    setDashboardDivisi(e.target.value);
+    setDashboardPage(1);
   };
 
   // Menyiapkan daftar divisi unik untuk dropdown filter
   const listDivisi = useMemo(() => {
-    const divisiSet = new Set();
-    users.forEach((user) => {
-      if (user.company?.name) divisiSet.add(user.company.name);
-    });
-    return ["Semua", ...Array.from(divisiSet).sort()];
-  }, [users]);
+    return ["Semua", ...divisions];
+  }, [divisions]);
 
   // Menangani pemilihan file foto profil
   const handleFileChange = (e) => {
@@ -141,46 +157,54 @@ const Users = () => {
       toast.success("Karyawan baru berhasil ditambahkan!");
       setIsModalOpen(false);
       reset();
+      fetchDivisions(); // Memperbarui dropdown divisi jika divisi baru ditambahkan
     } catch (err) {
       toast.error(err.message || "Terjadi kesalahan.");
     }
   };
 
-  // Logika download file CSV yang rapi untuk Excel
-  const handleExportCSV = () => {
-    if (users.length === 0) {
-      toast.error("Tidak ada data untuk diekspor.");
-      return;
+  // Logika download file CSV yang rapi untuk Excel (seluruh data terfilter, bukan hanya halaman saat ini)
+  const handleExportCSV = async () => {
+    const toastId = toast.loading("Menyiapkan data ekspor...");
+    try {
+      const dataToExport = await exportUsers(dashboardSearch, dashboardDivisi);
+
+      if (!dataToExport || dataToExport.length === 0) {
+        toast.error("Tidak ada data untuk diekspor.", { id: toastId });
+        return;
+      }
+
+      const excelInstruction = "sep=,"; // Agar Excel tahu pembatasnya koma
+      const headers = ["ID Karyawan,Nama Lengkap,Nama Panggilan,Email,Telepon,Divisi,Jabatan,Alamat,Kota"];
+      const rows = dataToExport.map(u => {
+        return [
+          u.custom_id || "",
+          u.name || "",
+          u.nickname || "",
+          u.email || "",
+          u.phone || "",
+          u.divisi || "",
+          u.jabatan || "",
+          u.jalan || "",
+          u.kota || ""
+        ].map(val => `"${val.replace(/"/g, '""')}"`).join(","); // Escape tanda kutip ganda
+      });
+
+      const csvContent = "\uFEFF" + excelInstruction + "\n" + headers.concat(rows).join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `daftar_karyawan_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast.success("Data berhasil diekspor ke CSV!", { id: toastId });
+    } catch (err) {
+      toast.error("Gagal mengekspor data: " + err.message, { id: toastId });
     }
-
-    const excelInstruction = "sep=,"; // Agar Excel tahu pembatasnya koma
-    const headers = ["ID Karyawan,Nama Lengkap,Nama Panggilan,Email,Telepon,Divisi,Jabatan,Alamat,Kota"];
-    const rows = users.map(u => {
-      return [
-        u.customId || "",
-        u.name,
-        u.nickname || "",
-        u.email,
-        u.phone || "",
-        u.company?.name || "",
-        u.company?.catchPhrase || "",
-        u.address?.street || "",
-        u.address?.city || ""
-      ].map(val => `"${val}"`).join(",");
-    });
-
-    const csvContent = "\uFEFF" + excelInstruction + "\n" + headers.concat(rows).join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `daftar_karyawan_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    toast.success("Data berhasil diekspor ke CSV!");
   };
 
   const totalPages = Math.ceil(totalCount / pageSize);
@@ -231,7 +255,7 @@ const Users = () => {
                 type="text"
                 placeholder="Cari Nama, Email, atau ID..."
                 className="bg-transparent w-full py-1 outline-none text-gray-900 dark:text-white font-bold placeholder-gray-400 text-sm md:text-base"
-                value={search}
+                value={dashboardSearch}
                 onChange={handleSearchChange}
               />
             </div>
@@ -242,7 +266,7 @@ const Users = () => {
               </svg>
               <select
                 className="bg-transparent w-full outline-none text-gray-900 dark:text-white font-bold text-sm md:text-base appearance-none cursor-pointer"
-                value={selectedDivisi}
+                value={dashboardDivisi}
                 onChange={handleDivisiChange}
               >
                 {listDivisi.map((divisi) => (
@@ -286,8 +310,8 @@ const Users = () => {
         {totalPages > 1 && (
           <div className="flex justify-center items-center gap-2 pb-12">
             <button 
-              disabled={page === 1}
-              onClick={() => setPage(prev => prev - 1)}
+              disabled={dashboardPage === 1}
+              onClick={() => setDashboardPage(dashboardPage - 1)}
               className="p-3 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 disabled:opacity-30 transition-all hover:bg-gray-50 active:scale-95"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -295,11 +319,11 @@ const Users = () => {
               </svg>
             </button>
             <div className="px-6 py-2 bg-blue-600 text-white rounded-xl font-black shadow-lg text-sm md:text-base">
-              {page} / {totalPages}
+              {dashboardPage} / {totalPages}
             </div>
             <button 
-              disabled={page === totalPages}
-              onClick={() => setPage(prev => prev + 1)}
+              disabled={dashboardPage === totalPages}
+              onClick={() => setDashboardPage(dashboardPage + 1)}
               className="p-3 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 disabled:opacity-30 transition-all hover:bg-gray-50 active:scale-95"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
