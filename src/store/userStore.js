@@ -244,6 +244,58 @@ const useUserStore = create(
           set({ isSubmitting: false });
         }
       },
+
+      // Fungsi untuk mengecek duplikasi ID dan Email massal dari CSV
+      checkBulkDuplicates: async (customIds, emails) => {
+        try {
+          const { data: existingIds } = await supabase
+            .from('karyawan')
+            .select('custom_id')
+            .in('custom_id', customIds);
+            
+          const { data: existingEmails } = await supabase
+            .from('karyawan')
+            .select('email')
+            .in('email', emails);
+
+          return {
+            duplicateIds: (existingIds || []).map(item => item.custom_id),
+            duplicateEmails: (existingEmails || []).map(item => item.email)
+          };
+        } catch (error) {
+          console.error("Gagal cek duplikasi massal:", error.message);
+          return { duplicateIds: [], duplicateEmails: [] };
+        }
+      },
+
+      // Fungsi untuk menyimpan data karyawan secara massal
+      addUsersBulk: async (usersList) => {
+        set({ isSubmitting: true });
+        try {
+          const rowsToInsert = usersList.map(u => ({
+            custom_id: u.customId,
+            name: u.name,
+            nickname: u.nickname || "",
+            email: u.email,
+            phone: u.phone || "",
+            divisi: u.company?.name || "",
+            jabatan: u.company?.catchPhrase || "",
+            jalan: u.address?.street || "",
+            kota: u.address?.city || ""
+          }));
+
+          const { error } = await supabase
+            .from('karyawan')
+            .insert(rowsToInsert);
+
+          if (error) throw error;
+
+          await get().fetchUsers();
+          await get().fetchDivisions();
+        } finally {
+          set({ isSubmitting: false });
+        }
+      },
     }),
     {
       name: 'user-storage',

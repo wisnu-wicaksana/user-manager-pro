@@ -11,6 +11,40 @@ import LoadingOverlay from "../components/LoadingOverlay";
 import FormInput from "../components/FormInput";
 
 /**
+ * Helper untuk mem-parsing data CSV mentah dengan aman.
+ * Menangani pemisahan baris, koma, dan karakter kutip ganda.
+ */
+const parseCSV = (text) => {
+  const lines = [];
+  let row = [""];
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const next = text[i + 1];
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        row[row.length - 1] += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      row.push("");
+    } else if ((char === '\r' || char === '\n') && !inQuotes) {
+      if (char === '\r' && next === '\n') i++;
+      lines.push(row);
+      row = [""];
+    } else {
+      row[row.length - 1] += char;
+    }
+  }
+  if (row.length > 1 || row[0] !== "") {
+    lines.push(row);
+  }
+  return lines;
+};
+
+/**
  * Aturan Validasi (Schema) menggunakan Zod.
  * Ini adalah 'kontrak' data: data hanya bisa disimpan jika memenuhi syarat ini.
  */
@@ -34,6 +68,8 @@ const employeeSchema = z.object({
 const Users = () => {
   // State lokal untuk UI
   const [isModalOpen, setIsModalOpen] = useState(false);         // Status modal tambah
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false); // Status modal impor CSV
+  const [parsedUsers, setParsedUsers] = useState([]);               // Data hasil parse CSV
   const [avatarPreview, setAvatarPreview] = useState(null);      // Preview foto sebelum upload
   const [selectedFile, setSelectedFile] = useState(null);       // File asli foto
   const pageSize = 10;                                // Jumlah data per halaman
@@ -57,7 +93,9 @@ const Users = () => {
     dashboardDivisi,
     setDashboardPage,
     setDashboardSearch,
-    setDashboardDivisi
+    setDashboardDivisi,
+    checkBulkDuplicates,
+    addUsersBulk
   } = useUserStore();
 
   // Inisialisasi React Hook Form
@@ -207,6 +245,183 @@ const Users = () => {
     }
   };
 
+  // Mengunduh berkas template CSV untuk impor data karyawan
+  const handleDownloadTemplate = () => {
+    const headers = "ID Karyawan,Nama Lengkap,Nama Panggilan,Email,Telepon,Divisi,Jabatan,Alamat,Kota\n";
+    const sampleRow = "EMP-9999,Budi Raharjo,Budi,budi@perusahaan.com,08123456789,IT,Senior Engineer,Jl. Sudirman No. 10,Jakarta\n";
+    const csvContent = "\uFEFF" + "sep=,\n" + headers + sampleRow;
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", "template_import_karyawan.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Membaca dan menvalidasi berkas CSV yang diunggah
+  const handleCSVUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!file.name.endsWith(".csv")) {
+      toast.error("Format berkas harus .csv");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const text = event.target.result;
+      const parsedData = parseCSV(text);
+      if (parsedData.length <= 1) {
+        toast.error("File CSV kosong atau tidak valid.");
+        return;
+      }
+
+      const headers = parsedData[0].map(h => h.trim());
+      
+      // Map header index
+      const idIdx = headers.indexOf("ID Karyawan");
+      const nameIdx = headers.indexOf("Nama Lengkap");
+      const nicknameIdx = headers.indexOf("Nama Panggilan");
+      const emailIdx = headers.indexOf("Email");
+      const phoneIdx = headers.indexOf("Telepon");
+      const divisiIdx = headers.indexOf("Divisi");
+      const jabatanIdx = headers.indexOf("Jabatan");
+      const alamatIdx = headers.indexOf("Alamat");
+      const kotaIdx = headers.indexOf("Kota");
+
+      if (idIdx === -1 || nameIdx === -1 || emailIdx === -1) {
+        toast.error("Format CSV salah. Kolom wajib: ID Karyawan, Nama Lengkap, Email");
+        return;
+      }
+
+      const rows = parsedData.slice(1);
+      const employees = [];
+      const customIds = [];
+      const emails = [];
+
+      rows.forEach((row, index) => {
+        // Lewati baris kosong
+        if (row.length === 1 && row[0] === "") return;
+
+        const rowNum = index + 2; 
+        const customId = row[idIdx]?.trim() || "";
+        const name = row[nameIdx]?.trim() || "";
+        const nickname = nicknameIdx !== -1 ? row[nicknameIdx]?.trim() : "";
+        const email = row[emailIdx]?.trim() || "";
+        const phone = phoneIdx !== -1 ? row[phoneIdx]?.trim() : "";
+        const divisi = divisiIdx !== -1 ? row[divisiIdx]?.trim() : "";
+        const jabatan = jabatanIdx !== -1 ? row[jabatanIdx]?.trim() : "";
+        const alamat = alamatIdx !== -1 ? row[alamatIdx]?.trim() : "";
+        const kota = kotaIdx !== -1 ? row[kotaIdx]?.trim() : "";
+
+        // Validasi format dasar di sisi klien
+        let rowError = null;
+        if (!customId) {
+          rowError = "ID Karyawan wajib diisi.";
+        } else if (!name) {
+          rowError = "Nama Lengkap wajib diisi.";
+        } else if (!email) {
+          rowError = "Email wajib diisi.";
+        } else if (!/\S+@\S+\.\S+/.test(email)) {
+          rowError = `Format email '${email}' tidak valid.`;
+        } else if (phone && !/^[0-9+]*$/.test(phone)) {
+          rowError = `Format nomor telepon '${phone}' hanya boleh angka dan +.`;
+        }
+
+        const employeeObj = {
+          rowNum,
+          customId,
+          name,
+          nickname,
+          email,
+          phone,
+          company: { name: divisi, catchPhrase: jabatan },
+          address: { street: alamat, city: kota },
+          error: rowError
+        };
+
+        employees.push(employeeObj);
+        if (!rowError) {
+          customIds.push(customId);
+          emails.push(email);
+        }
+      });
+
+      if (employees.length === 0) {
+        toast.error("Tidak ada data karyawan yang ditemukan.");
+        return;
+      }
+
+      // Deteksi duplikasi di dalam file CSV itu sendiri
+      const localIdSet = new Set();
+      const localEmailSet = new Set();
+      employees.forEach(emp => {
+        if (emp.error) return;
+        if (localIdSet.has(emp.customId)) {
+          emp.error = `ID Karyawan '${emp.customId}' duplikat di dalam berkas CSV ini.`;
+        } else {
+          localIdSet.add(emp.customId);
+        }
+
+        if (localEmailSet.has(emp.email)) {
+          emp.error = `Email '${emp.email}' duplikat di dalam berkas CSV ini.`;
+        } else {
+          localEmailSet.add(emp.email);
+        }
+      });
+
+      // Deteksi duplikasi terhadap database
+      const toastValId = toast.loading("Memvalidasi data terhadap database...");
+      try {
+        const { duplicateIds, duplicateEmails } = await checkBulkDuplicates(customIds, emails);
+
+        employees.forEach(emp => {
+          if (emp.error) return;
+          if (duplicateIds.includes(emp.customId)) {
+            emp.error = `ID '${emp.customId}' sudah digunakan di database.`;
+          } else if (duplicateEmails.includes(emp.email)) {
+            emp.error = `Email '${emp.email}' sudah terdaftar di database.`;
+          }
+        });
+        toast.success("Validasi selesai!", { id: toastValId });
+      } catch (err) {
+        toast.error("Gagal memvalidasi duplikasi: " + err.message, { id: toastValId });
+      }
+
+      setParsedUsers(employees);
+    };
+    reader.readAsText(file);
+  };
+
+  // Mengirim data CSV yang valid ke database secara massal
+  const handleImportSubmit = async () => {
+    const validUsers = parsedUsers.filter(u => !u.error);
+    const totalErrors = parsedUsers.filter(u => u.error).length;
+
+    if (validUsers.length === 0) {
+      toast.error("Tidak ada data karyawan valid untuk diimpor.");
+      return;
+    }
+
+    if (totalErrors > 0) {
+      toast.error(`Ada ${totalErrors} baris bermasalah. Perbaiki berkas CSV Anda terlebih dahulu.`);
+      return;
+    }
+
+    try {
+      await addUsersBulk(validUsers);
+      toast.success(`${validUsers.length} karyawan berhasil diimpor!`);
+      setIsImportModalOpen(false);
+      setParsedUsers([]);
+    } catch (err) {
+      toast.error(err.message || "Gagal mengimpor karyawan.");
+    }
+  };
+
   const totalPages = Math.ceil(totalCount / pageSize);
 
   return (
@@ -222,22 +437,35 @@ const Users = () => {
               Karyawan
             </h1>
 
-            <div className="flex gap-3">
+            <div className="flex flex-wrap sm:flex-nowrap gap-3 w-full sm:w-auto">
               <button
                 onClick={handleExportCSV}
-                className="flex-1 sm:flex-none bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 px-6 py-3.5 rounded-2xl font-black border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all shadow-sm flex items-center justify-center gap-2 text-base"
+                className="flex-1 sm:flex-none bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 px-5 py-3.5 rounded-2xl font-black border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all shadow-sm flex items-center justify-center gap-2 text-sm md:text-base"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
                 Export
               </button>
+
+              <button
+                onClick={() => {
+                  setParsedUsers([]);
+                  setIsImportModalOpen(true);
+                }}
+                className="flex-1 sm:flex-none bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 px-5 py-3.5 rounded-2xl font-black border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all shadow-sm flex items-center justify-center gap-2 text-sm md:text-base"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                Import
+              </button>
               
               <button
-                className="flex-[2] sm:flex-none bg-blue-600 text-white px-8 py-3.5 rounded-2xl font-black hover:bg-blue-700 active:scale-95 transition-all shadow-xl shadow-blue-200 dark:shadow-none flex items-center justify-center gap-2 text-base md:text-lg"
+                className="flex-[2] sm:flex-none bg-blue-600 text-white px-6 sm:px-8 py-3.5 rounded-2xl font-black hover:bg-blue-700 active:scale-95 transition-all shadow-xl shadow-blue-200 dark:shadow-none flex items-center justify-center gap-2 text-sm md:text-base"
                 onClick={handleOpenAddModal} 
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4" />
                 </svg>
                 Tambah
@@ -419,6 +647,137 @@ const Users = () => {
               </button>
             </div>
           </form>
+        </Modal>
+
+        {/* Modal Impor CSV */}
+        <Modal
+          isOpen={isImportModalOpen}
+          onClose={() => !isSubmitting && setIsImportModalOpen(false)}
+          title="Impor Karyawan via CSV"
+        >
+          <div className="space-y-6 max-h-[75vh] md:max-h-[70vh] overflow-y-auto px-1 pr-2 custom-scrollbar">
+            {/* Bagian Petunjuk */}
+            <div className="bg-blue-50 dark:bg-blue-900/10 p-5 rounded-3xl border border-blue-100 dark:border-blue-900/30 text-sm text-blue-800 dark:text-blue-200">
+              <h4 className="font-black mb-2 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+                Petunjuk Impor Data
+              </h4>
+              <p className="mb-3 font-medium text-xs leading-relaxed">
+                Unggah berkas CSV berisi data karyawan dengan struktur kolom yang sesuai. Unduh template di bawah untuk memastikan struktur format tepat.
+              </p>
+              <button
+                type="button"
+                onClick={handleDownloadTemplate}
+                className="font-black text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1.5"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Unduh Template CSV
+              </button>
+            </div>
+
+            {/* Zona Upload File */}
+            <div className="flex flex-col items-center justify-center p-8 bg-gray-50 dark:bg-gray-900/50 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-700 hover:bg-gray-100/50 dark:hover:bg-gray-900 transition-colors relative group">
+              <input
+                type="file"
+                accept=".csv"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                onChange={handleCSVUpload}
+                disabled={isSubmitting}
+              />
+              <div className="text-center pointer-events-none space-y-3">
+                <div className="w-14 h-14 bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 rounded-2xl flex items-center justify-center mx-auto shadow-md border border-gray-100 dark:border-gray-700 group-hover:scale-110 transition-transform">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-sm font-black text-gray-800 dark:text-white">Pilih atau Seret Berkas CSV</p>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mt-1">Maksimal 5MB (Format .csv)</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Area Pratinjau Tabel */}
+            {parsedUsers.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex justify-between items-center px-1">
+                  <h4 className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-[0.2em]">Pratinjau Data Karyawan</h4>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-red-500">
+                    {parsedUsers.filter(u => u.error).length} Bermasalah
+                  </span>
+                </div>
+
+                <div className="border border-gray-200 dark:border-gray-700 rounded-2xl overflow-hidden max-h-[300px] overflow-y-auto">
+                  <table className="w-full text-left border-collapse text-xs font-bold">
+                    <thead>
+                      <tr className="bg-gray-100 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 uppercase tracking-widest text-[9px]">
+                        <th className="p-3">Baris</th>
+                        <th className="p-3">ID Karyawan</th>
+                        <th className="p-3">Nama</th>
+                        <th className="p-3">Email</th>
+                        <th className="p-3">Keterangan / Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-150 dark:divide-gray-800">
+                      {parsedUsers.map((emp, i) => (
+                        <tr 
+                          key={i} 
+                          className={`text-gray-700 dark:text-gray-300 ${
+                            emp.error 
+                              ? 'bg-red-50/50 dark:bg-red-950/10' 
+                              : 'bg-white dark:bg-gray-800/20 hover:bg-gray-50 dark:hover:bg-gray-800/30'
+                          }`}
+                        >
+                          <td className="p-3 text-gray-400">{emp.rowNum}</td>
+                          <td className="p-3">{emp.customId}</td>
+                          <td className="p-3 truncate max-w-[120px]">{emp.name}</td>
+                          <td className="p-3 truncate max-w-[150px]">{emp.email}</td>
+                          <td className="p-3">
+                            {emp.error ? (
+                              <span className="inline-block px-2.5 py-1 text-[9px] font-black uppercase bg-red-100 dark:bg-red-950/30 text-red-600 dark:text-red-400 rounded-full">
+                                {emp.error}
+                              </span>
+                            ) : (
+                              <span className="inline-block px-2.5 py-1 text-[9px] font-black uppercase bg-green-100 dark:bg-green-950/30 text-green-600 dark:text-green-400 rounded-full">
+                                Siap Diimpor
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Tombol Aksi */}
+            <div className="flex gap-4 pt-6 pb-2 sticky bottom-0 bg-white dark:bg-gray-800 transition-colors">
+              <button
+                disabled={isSubmitting}
+                type="button"
+                onClick={() => {
+                  setParsedUsers([]);
+                  setIsImportModalOpen(false);
+                }}
+                className="flex-1 px-6 py-4 rounded-2xl font-black text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-700 text-sm md:text-base disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                disabled={isSubmitting || parsedUsers.length === 0 || parsedUsers.some(u => u.error)}
+                type="button"
+                onClick={handleImportSubmit}
+                className="flex-[2] px-6 py-4 rounded-2xl font-black bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-800 disabled:text-gray-400 dark:disabled:text-gray-600 shadow-xl disabled:shadow-none transition-all active:scale-95 flex items-center justify-center gap-2"
+              >
+                {isSubmitting ? "Mengimpor..." : "Impor Sekarang"}
+              </button>
+            </div>
+          </div>
         </Modal>
       </div>
     </>
