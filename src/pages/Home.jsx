@@ -1,6 +1,49 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import useUserStore from "../store/userStore";
+
+const FAQItem = ({ question, answer }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="border-b border-gray-150 dark:border-gray-800 last:border-none py-5 transition-colors">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex justify-between items-center text-left gap-4 group"
+      >
+        <span className="text-base md:text-lg font-black text-gray-800 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+          {question}
+        </span>
+        <motion.span
+          animate={{ rotate: isOpen ? 180 : 0 }}
+          transition={{ type: "spring", stiffness: 200, damping: 15 }}
+          className="text-gray-400 dark:text-gray-500 shrink-0"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+          </svg>
+        </motion.span>
+      </button>
+      
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <p className="mt-3 text-sm md:text-base text-gray-600 dark:text-gray-400 leading-relaxed font-medium">
+              {answer}
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
 
 const Home = () => {
   const { users, fetchUsers } = useUserStore();
@@ -102,6 +145,41 @@ const Home = () => {
               </p>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* FAQ Section */}
+      <section className="max-w-4xl mx-auto px-4 py-8">
+        <div className="text-center mb-12 md:mb-16">
+          <h2 className="text-2xl md:text-5xl font-black text-gray-900 dark:text-white mb-4 tracking-tight">
+            Pertanyaan yang Sering Diajukan (FAQ)
+          </h2>
+          <p className="text-sm md:text-lg text-gray-600 dark:text-gray-400 font-medium">
+            Temukan jawaban atas pertanyaan umum seputar penggunaan aplikasi User Manager Pro.
+          </p>
+        </div>
+
+        <div className="bg-white dark:bg-gray-900 p-6 md:p-10 rounded-[2.5rem] shadow-xl border border-gray-100 dark:border-gray-800 divide-y divide-gray-150 dark:divide-gray-800 transition-colors">
+          <FAQItem 
+            question="Bagaimana cara menambahkan karyawan baru?" 
+            answer="Anda harus masuk sebagai Admin terlebih dahulu. Setelah berhasil login, buka halaman Dashboard, lalu klik tombol 'Tambah Karyawan'. Lengkapi semua formulir wajib, unggah foto profil (opsional), kemudian klik 'Simpan Karyawan'."
+          />
+          <FAQItem 
+            question="Apakah aplikasi ini mendukung impor data massal dari Excel?" 
+            answer="Ya! Kami mendukung impor massal menggunakan berkas berformat CSV. Di dashboard admin, klik tombol 'Import', unduh template yang disediakan, sesuaikan data Anda dengan kolom template, lalu unggah kembali berkas tersebut untuk validasi duplikasi otomatis sebelum disimpan."
+          />
+          <FAQItem 
+            question="Bagaimana sistem mengamankan data karyawan perusahaan?" 
+            answer="Semua informasi disimpan dengan aman di database cloud Supabase yang dilindungi oleh sistem Row Level Security (RLS). Hanya akun Admin terverifikasi dan masuk dengan sesi aktif yang dapat melihat, mengubah, atau menghapus data karyawan."
+          />
+          <FAQItem 
+            question="Bagaimana cara mengekspor data karyawan ke komputer?" 
+            answer="Buka Dashboard karyawan, lalu klik tombol 'Export'. Aplikasi akan mengunduh seluruh data karyawan yang saat itu sesuai dengan kata kunci pencarian dan filter divisi yang aktif langsung ke dalam berkas berformat CSV secara otomatis."
+          />
+          <FAQItem 
+            question="Apakah aplikasi ini mendukung mode tampilan gelap (Dark Mode)?" 
+            answer="Tentu saja! Anda bisa mengganti mode tampilan gelap/terang secara manual dengan menekan tombol ikon bulan/matahari di bilah navigasi (Navbar) atas. Preferensi tema Anda akan disimpan secara otomatis di browser lokal Anda."
+          />
         </div>
       </section>
 
