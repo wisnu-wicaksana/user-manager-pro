@@ -12,6 +12,7 @@ const useUserStore = create(
       error: null,       // Menyimpan pesan error jika ada
       theme: 'light',    // Status tema aplikasi
       divisions: [],     // Menyimpan daftar divisi unik
+      stats: { divisionsCount: {}, citiesCount: {} }, // Statistik divisi & domisili Karyawan
       dashboardPage: 1,  // Halaman aktif dashboard (untuk retensi filter)
       dashboardSearch: "", // Kata kunci pencarian dashboard (untuk retensi filter)
       dashboardDivisi: "Semua", // Filter divisi dashboard (untuk retensi filter)
@@ -45,6 +46,32 @@ const useUserStore = create(
           set({ divisions: uniqueDivisions });
         } catch (error) {
           console.error("Gagal mengambil divisi:", error.message);
+        }
+      },
+
+      // Fungsi untuk mengambil statistik pembagian divisi & domisili kota karyawan
+      fetchStats: async () => {
+        try {
+          const { data, error } = await supabase
+            .from('karyawan')
+            .select('divisi, kota');
+          
+          if (error) throw error;
+
+          const divisionsCount = {};
+          const citiesCount = {};
+
+          data.forEach(item => {
+            const div = item.divisi || "Tanpa Divisi";
+            const city = item.kota || "Tanpa Kota";
+
+            divisionsCount[div] = (divisionsCount[div] || 0) + 1;
+            citiesCount[city] = (citiesCount[city] || 0) + 1;
+          });
+
+          set({ stats: { divisionsCount, citiesCount } });
+        } catch (error) {
+          console.error("Gagal mengambil statistik:", error.message);
         }
       },
 
@@ -189,6 +216,7 @@ const useUserStore = create(
           if (error) throw error;
 
           await get().fetchUsers(); 
+          await get().fetchStats();
         } finally {
           set({ isSubmitting: false });
         }
@@ -209,6 +237,7 @@ const useUserStore = create(
           if (error) throw error;
 
           await get().fetchUsers();
+          await get().fetchStats();
         } finally {
           set({ isSubmitting: false });
         }
@@ -240,6 +269,7 @@ const useUserStore = create(
           if (error) throw error;
 
           await get().fetchUsers();
+          await get().fetchStats();
         } finally {
           set({ isSubmitting: false });
         }
@@ -292,6 +322,7 @@ const useUserStore = create(
 
           await get().fetchUsers();
           await get().fetchDivisions();
+          await get().fetchStats();
         } finally {
           set({ isSubmitting: false });
         }

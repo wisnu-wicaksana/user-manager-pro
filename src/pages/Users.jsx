@@ -3,6 +3,7 @@ import toast from "react-hot-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
+import { motion, AnimatePresence } from "framer-motion";
 import useUserStore from "../store/userStore";
 import Modal from "../components/Modal";
 import UserCard from "../components/UserCard";
@@ -70,6 +71,7 @@ const Users = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);         // Status modal tambah
   const [isImportModalOpen, setIsImportModalOpen] = useState(false); // Status modal impor CSV
   const [parsedUsers, setParsedUsers] = useState([]);               // Data hasil parse CSV
+  const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);   // Status tampil analitik dashboard
   const [avatarPreview, setAvatarPreview] = useState(null);      // Preview foto sebelum upload
   const [selectedFile, setSelectedFile] = useState(null);       // File asli foto
   const pageSize = 10;                                // Jumlah data per halaman
@@ -95,7 +97,9 @@ const Users = () => {
     setDashboardSearch,
     setDashboardDivisi,
     checkBulkDuplicates,
-    addUsersBulk
+    addUsersBulk,
+    stats,
+    fetchStats
   } = useUserStore();
 
   // Inisialisasi React Hook Form
@@ -118,10 +122,11 @@ const Users = () => {
     },
   });
 
-  // Ambil daftar divisi sekali saat komponen pertama kali dipasang
+  // Ambil daftar divisi dan statistik sekali saat komponen pertama kali dipasang
   useEffect(() => {
     fetchDivisions();
-  }, [fetchDivisions]);
+    fetchStats();
+  }, [fetchDivisions, fetchStats]);
 
   /**
    * PENTING: Ambil data setiap kali Halaman, Pencarian, atau Divisi berubah.
@@ -424,6 +429,15 @@ const Users = () => {
 
   const totalPages = Math.ceil(totalCount / pageSize);
 
+  const divisionsStats = stats?.divisionsCount || {};
+  const citiesStats = stats?.citiesCount || {};
+
+  const totalRegisteredDivisions = Object.keys(divisionsStats).length;
+  const totalRegisteredCities = Object.keys(citiesStats).length;
+
+  const maxDivCount = Math.max(...Object.values(divisionsStats), 1);
+  const maxCityCount = Math.max(...Object.values(citiesStats), 1);
+
   return (
     <>
       {/* Overlay loading hanya saat ada proses tulis data (isSubmitting) */}
@@ -433,9 +447,27 @@ const Users = () => {
         {/* Header & Tombol Tambah/Export */}
         <div className="flex flex-col gap-6 mb-8 md:mb-12">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <h1 className="text-3xl md:text-5xl font-black text-gray-900 dark:text-white tracking-tight">
-              Karyawan
-            </h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl md:text-5xl font-black text-gray-900 dark:text-white tracking-tight">
+                Karyawan
+              </h1>
+              <button
+                type="button"
+                onClick={() => setIsAnalyticsOpen(!isAnalyticsOpen)}
+                className={`p-2.5 rounded-2xl border transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-1.5 font-black text-[10px] uppercase tracking-wider ${
+                  isAnalyticsOpen 
+                    ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-900/50 shadow-sm' 
+                    : 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700'
+                }`}
+                title={isAnalyticsOpen ? "Sembunyikan Analitik" : "Tampilkan Analitik"}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4.5 w-4.5 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 3.055A9.003 9.003 0 1020.945 13H11V3.055z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
+                </svg>
+                <span className="hidden sm:inline">Analitik</span>
+              </button>
+            </div>
 
             <div className="flex flex-wrap sm:flex-nowrap gap-3 w-full sm:w-auto">
               <button
@@ -506,6 +538,108 @@ const Users = () => {
             </div>
           </div>
         </div>
+
+        {/* Analitik Section */}
+        <AnimatePresence>
+          {isAnalyticsOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0, marginBottom: 0 }}
+              animate={{ height: "auto", opacity: 1, marginBottom: 32 }}
+              exit={{ height: 0, opacity: 0, marginBottom: 0 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+              className="overflow-hidden"
+            >
+              <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] shadow-xl p-6 md:p-10 border border-gray-150 dark:border-gray-800 transition-colors space-y-8">
+                {/* Row Indikator KPI */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="bg-blue-50/50 dark:bg-blue-950/10 p-6 rounded-3xl border border-blue-50 dark:border-blue-900/20 text-center">
+                    <p className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-1">Total Karyawan</p>
+                    <p className="text-3xl font-black text-gray-900 dark:text-white">{totalCount}</p>
+                  </div>
+                  <div className="bg-green-50/50 dark:bg-green-950/10 p-6 rounded-3xl border border-green-50 dark:border-green-900/20 text-center">
+                    <p className="text-[10px] font-black text-green-600 dark:text-green-400 uppercase tracking-widest mb-1">Divisi Terdaftar</p>
+                    <p className="text-3xl font-black text-gray-900 dark:text-white">{totalRegisteredDivisions}</p>
+                  </div>
+                  <div className="bg-yellow-50/50 dark:bg-yellow-950/10 p-6 rounded-3xl border border-yellow-50 dark:border-yellow-900/20 text-center">
+                    <p className="text-[10px] font-black text-yellow-600 dark:text-yellow-400 uppercase tracking-widest mb-1">Sebaran Kota</p>
+                    <p className="text-3xl font-black text-gray-900 dark:text-white">{totalRegisteredCities}</p>
+                  </div>
+                </div>
+
+                {/* Progress Bars Distribusi */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 pt-4 border-t border-gray-100 dark:border-gray-800">
+                  {/* Distribusi Divisi */}
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest ml-1">Distribusi Divisi</h4>
+                    {Object.keys(divisionsStats).length === 0 ? (
+                      <p className="text-sm font-bold text-gray-400 italic py-2">Belum ada data divisi.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {Object.entries(divisionsStats)
+                          .sort((a, b) => b[1] - a[1])
+                          .slice(0, 5)
+                          .map(([div, count]) => {
+                            const percentage = Math.round((count / totalCount) * 100);
+                            const barWidth = (count / maxDivCount) * 100;
+                            return (
+                              <div key={div} className="space-y-1">
+                                <div className="flex justify-between items-center text-xs font-bold px-1 text-gray-700 dark:text-gray-300">
+                                  <span>{div}</span>
+                                  <span>{count} Orang ({percentage}%)</span>
+                                </div>
+                                <div className="h-3 w-full bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                                  <motion.div
+                                    initial={{ width: 0 }}
+                                    animate={{ width: `${barWidth}%` }}
+                                    transition={{ duration: 0.8, ease: "easeOut" }}
+                                    className="h-full bg-gradient-to-r from-blue-600 to-blue-400 rounded-full"
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Distribusi Kota */}
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest ml-1">Sebaran Domisili (Kota)</h4>
+                    {Object.keys(citiesStats).length === 0 ? (
+                      <p className="text-sm font-bold text-gray-400 italic py-2">Belum ada data domisili.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {Object.entries(citiesStats)
+                          .sort((a, b) => b[1] - a[1])
+                          .slice(0, 5)
+                          .map(([city, count]) => {
+                            const percentage = Math.round((count / totalCount) * 100);
+                            const barWidth = (count / maxCityCount) * 100;
+                            return (
+                              <div key={city} className="space-y-1">
+                                <div className="flex justify-between items-center text-xs font-bold px-1 text-gray-700 dark:text-gray-300">
+                                  <span>{city}</span>
+                                  <span>{count} Orang ({percentage}%)</span>
+                                </div>
+                                <div className="h-3 w-full bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                                  <motion.div
+                                    initial={{ width: 0 }}
+                                    animate={{ width: `${barWidth}%` }}
+                                    transition={{ duration: 0.8, ease: "easeOut" }}
+                                    className="h-full bg-gradient-to-r from-green-600 to-green-400 rounded-full"
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Daftar Karyawan */}
         <div className="space-y-4 mb-10">
