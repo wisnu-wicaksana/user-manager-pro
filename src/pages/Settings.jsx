@@ -5,6 +5,7 @@ import useAuthStore from "../store/authStore";
 
 const Settings = () => {
   const { user, updatePassword } = useAuthStore();
+  const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -22,8 +23,9 @@ const Settings = () => {
 
     setLoading(true);
     try {
-      await updatePassword(newPassword);
+      await updatePassword(user?.email, oldPassword, newPassword);
       toast.success("Password berhasil diperbarui!");
+      setOldPassword("");
       setNewPassword("");
       setConfirmPassword("");
     } catch (error) {
@@ -56,6 +58,18 @@ const Settings = () => {
           <h3 className="text-xs font-black text-blue-600 dark:text-blue-400 uppercase tracking-[0.2em] mb-6">Keamanan Akun</h3>
           
           <form onSubmit={handleUpdatePassword} className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest ml-1">Password Lama</label>
+              <input 
+                required
+                type="password" 
+                className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-4 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white font-bold transition-all"
+                placeholder="Masukkan password saat ini"
+                value={oldPassword}
+                onChange={(e) => setOldPassword(e.target.value)}
+              />
+            </div>
+
             <div className="space-y-2">
               <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest ml-1">Password Baru</label>
               <input 

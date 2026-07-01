@@ -40,12 +40,22 @@ const useAuthStore = create((set) => ({
     set({ user: null, session: null });
   },
 
-  // Fitur Ganti Password untuk Admin
-  updatePassword: async (newPassword) => {
-    const { error } = await supabase.auth.updateUser({
+  // Fitur Ganti Password untuk Admin dengan Verifikasi Password Lama
+  updatePassword: async (email, oldPassword, newPassword) => {
+    // 1. Verifikasi password lama dengan melakukan login singkat
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password: oldPassword,
+    });
+    if (signInError) {
+      throw new Error("Password lama salah. Gagal memverifikasi identitas.");
+    }
+
+    // 2. Jika password lama benar, lakukan pembaruan ke password baru
+    const { error: updateError } = await supabase.auth.updateUser({
       password: newPassword
     });
-    if (error) throw error;
+    if (updateError) throw updateError;
   }
 }));
 
